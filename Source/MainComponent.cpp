@@ -98,12 +98,14 @@ public:
                 updateAngleDelta();
             }
         }
+        // Not sure if this is entirely thread-safe. I haven't observed any data-races yet... Need to look at the assembly...
         targetLevel = Decibels::decibelsToGain(levelSlider.getValue());
         targetNoiseLevel = Decibels::decibelsToGain(noiseLevelSlider.getValue());
         downsampleFactor = noiseResolutionSlider.getValue();
         noiseSmoothing = noiseSmoothingSlider.getValue();
     }
 
+    // The audio callback: where all your wildest dreams come true.
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
     {
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
@@ -114,23 +116,27 @@ public:
 
           updateNoise = downsampleCounter >= downsampleFactor;
           downsampleCounter++;
+          // Lower temperal resolution of the noise by changing value every n samples
+          if (updateNoise) {
+            noise = random.nextFloat() * noiseLevelScale - noiseLevel;
+            noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
+            downsampleCounter = 0;
+          }
+
+          smoothedNoise += (noise - smoothedNoise)/noiseSmoothing;
+          smoothedNoise2 += (noise2 - smoothedNoise2)/noiseSmoothing;
             for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
 
                 buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
 
-                if (updateNoise) {
-                  noise = random.nextFloat() * noiseLevelScale - noiseLevel;
-                  noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
-                  downsampleCounter = 0;
-                }
 
-                smoothedNoise += (noise - smoothedNoise)/noiseSmoothing;
-                smoothedNoise2 += (noise2 - smoothedNoise2)/noiseSmoothing;
-
+                // A basic FM synthesis operator
                 currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
+
                 currentAngle += angleDelta*(smoothedNoise+1.0f);;
                 currentAngle2 += angleDelta2*(smoothedNoise2+1.0f);
 
+                // Hot diggity damn! We have samples to put in the buffer!
                 buffer[sample] = (currentSample * levelScale - level);
             }
         }
@@ -178,46 +184,24 @@ private:
     //==============================================================================
     Random random;
 
-    Slider levelSlider;
-    Label levelLabel;
-    Slider freqSlider;
-    Slider freqSlider2;
-    Label freqLabel;
-    Label freqLabel2;
+    Slider levelSlider, freqSlider, freqSlider2, noiseLevelSlider, noiseResolutionSlider, noiseSmoothingSlider;
 
-    Slider noiseLevelSlider;
-    Label noiseLevelLabel;
+    Label levelLabel, freqLabel, freqLabel2, noiseLevelLabel, noiseResolutionLabel, noiseSmoothingLabel;
 
-    Slider noiseResolutionSlider;
-    Label noiseResolutionLabel;
+    double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2, cyclesPerSample, cyclesPerSample2;
+    float smoothedNoise, smoothedNoise2, noise, noise2, targetLevel,
+    levelScale, noiseLevel, targetNoiseLevel, noiseLevelScale, currentSample;
 
-    Slider noiseSmoothingSlider;
-    Label noiseSmoothingLabel;
-
-    double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2;
-
-    volatile double cyclesPerSample;
-    volatile double cyclesPerSample2;
-    volatile float noiseSmoothing = 1;
-
-    volatile float* buffer;
-
-    volatile float level = 0.0f;
-    volatile float targetLevel;
-    volatile float levelScale;
-
-    volatile float noiseLevel;
-    volatile float targetNoiseLevel;
-    volatile float noiseLevelScale;
-
-    volatile float currentSample;
-
+    float noiseSmoothing = 1;
+    float level = 0.0f;
     int downsampleCounter = 0;
     float downsampleFactor = 0.0;
     bool updateNoise = false;
 
-    float noise, noise2;
-    float smoothedNoise, smoothedNoise2;
+    // Our dear audio buffer! Oooooooh yeah!
+    float* buffer;
+
+
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
 };
