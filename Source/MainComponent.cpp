@@ -74,25 +74,25 @@ public:
 
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
     {
-        const float level = levelSlider.getValue();
-        const float levelScale = level * 2.0f;
+        level = levelSlider.getValue();
+        levelScale = level * 2.0f;
 
-        const float noiseLevel = noiseLevelSlider.getValue();
-        const float noiseLevelScale = noiseLevel * 2.0f;
+        noiseLevel = noiseLevelSlider.getValue();
+        noiseLevelScale = noiseLevel * 2.0f;
 
         int downsample = 512;
 
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
             for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
 
-                float* const buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
+                buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
 
                 if ((sample % downsample) == 0) {
                   noise = random.nextFloat() * noiseLevelScale - noiseLevel;
                   noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
                 }
 
-                const float currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
+                currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
                 currentAngle += angleDelta*(noise+1.0f);;
                 currentAngle2 += angleDelta2*(noise2+1.0f);
 
@@ -102,8 +102,8 @@ public:
     }
 
     void updateAngleDelta() {
-        const double cyclesPerSample = freqSlider.getValue() / currentSampleRate;
-        const double cyclesPerSample2 = freqSlider2.getValue() / currentSampleRate;
+        cyclesPerSample = freqSlider.getValue() / currentSampleRate;
+        cyclesPerSample2 = freqSlider2.getValue() / currentSampleRate;
         angleDelta = cyclesPerSample * 2.0 * double_Pi;
         angleDelta2 = cyclesPerSample2 * 2.0 * double_Pi;
     }
@@ -154,6 +154,19 @@ private:
     Label noiseResolutionLabel;
 
     double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2;
+
+    volatile double cyclesPerSample;
+    volatile double cyclesPerSample2;
+
+    volatile float* buffer;
+
+    volatile float level;
+    volatile float levelScale;
+
+    volatile float noiseLevel;
+    volatile float noiseLevelScale;
+
+    volatile float currentSample;
 
     float noise, noise2;
 
