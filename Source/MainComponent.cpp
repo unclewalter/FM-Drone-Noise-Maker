@@ -20,7 +20,7 @@ public:
         noiseLevelSlider.addListener(this);
         noiseLevelLabel.setText ("Noise Level", dontSendNotification);
 
-        noiseResolutionSlider.setRange (0, 512);
+        noiseResolutionSlider.setRange (0, 1024);
         noiseResolutionSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
         noiseResolutionSlider.addListener(this);
         noiseResolutionLabel.setText ("Noise Resolution", dontSendNotification);
@@ -73,19 +73,24 @@ public:
                 updateAngleDelta();
             }
         }
-        level = levelSlider.getValue();
-        noiseLevel = noiseLevelSlider.getValue();
+        targetLevel = levelSlider.getValue();
+        targetNoiseLevel = noiseLevelSlider.getValue();
         downsampleFactor = noiseResolutionSlider.getValue();
     }
 
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
     {
-        levelScale = level * 2.0f;
 
-        noiseLevelScale = noiseLevel * 2.0f;
+
+
 
 
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
+          level += (targetLevel - level)/60;
+          noiseLevel += (targetNoiseLevel - noiseLevel)/60;
+          levelScale = level * 2.0f;
+          noiseLevelScale = noiseLevel * 2.0f;
+
           updateNoise = downsampleCounter >= downsampleFactor;
           downsampleCounter++;
             for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
@@ -113,6 +118,14 @@ public:
         angleDelta = cyclesPerSample * 2.0 * double_Pi;
         angleDelta2 = cyclesPerSample2 * 2.0 * double_Pi;
     }
+
+    // float dBToVolume(float dB) {
+    //   return powf(10.0f, 0.05f, dB);
+    // }
+    //
+    // float volumeTodB(float volume) {
+    //   return 20.0f * log10f(volume);
+    // }
 
     void releaseResources() override
     {
@@ -167,9 +180,11 @@ private:
     volatile float* buffer;
 
     volatile float level;
+    volatile float targetLevel;
     volatile float levelScale;
 
     volatile float noiseLevel;
+    volatile float targetNoiseLevel;
     volatile float noiseLevelScale;
 
     volatile float currentSample;
