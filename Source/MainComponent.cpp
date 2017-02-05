@@ -12,14 +12,17 @@ public:
     {
         levelSlider.setRange (0.0, 0.75);
         levelSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
+        levelSlider.addListener(this);
         levelLabel.setText ("Level", dontSendNotification);
 
         noiseLevelSlider.setRange (0.0, 10.0);
         noiseLevelSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
+        noiseLevelSlider.addListener(this);
         noiseLevelLabel.setText ("Noise Level", dontSendNotification);
 
         noiseResolutionSlider.setRange (0, 512);
         noiseResolutionSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
+        noiseResolutionSlider.addListener(this);
         noiseResolutionLabel.setText ("Noise Resolution", dontSendNotification);
 
         addAndMakeVisible(freqSlider);
@@ -70,26 +73,29 @@ public:
                 updateAngleDelta();
             }
         }
+        level = levelSlider.getValue();
+        noiseLevel = noiseLevelSlider.getValue();
+        downsampleFactor = noiseResolutionSlider.getValue();
     }
 
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
     {
-        level = levelSlider.getValue();
         levelScale = level * 2.0f;
 
-        noiseLevel = noiseLevelSlider.getValue();
         noiseLevelScale = noiseLevel * 2.0f;
 
-        int downsample = 512;
 
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
+          updateNoise = downsampleCounter >= downsampleFactor;
+          downsampleCounter++;
             for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
 
                 buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
 
-                if ((sample % downsample) == 0) {
+                if (updateNoise) {
                   noise = random.nextFloat() * noiseLevelScale - noiseLevel;
                   noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
+                  downsampleCounter = 0;
                 }
 
                 currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
@@ -167,6 +173,10 @@ private:
     volatile float noiseLevelScale;
 
     volatile float currentSample;
+
+    int downsampleCounter = 0;
+    float downsampleFactor = 0.0;
+    bool updateNoise = false;
 
     float noise, noise2;
 
