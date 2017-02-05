@@ -20,7 +20,7 @@ public:
         noiseLevelSlider.addListener(this);
         noiseLevelLabel.setText ("Noise Level", dontSendNotification);
 
-        noiseResolutionSlider.setRange (0, 1024);
+        noiseResolutionSlider.setRange (0, 10000);
         noiseResolutionSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
         noiseResolutionSlider.addListener(this);
         noiseResolutionLabel.setText ("Noise Resolution", dontSendNotification);
@@ -40,12 +40,15 @@ public:
         freqLabel2.setText ("Freq 2", dontSendNotification);
 
         addAndMakeVisible (levelSlider);
+        levelSlider.setSkewFactorFromMidPoint(0.2);
         addAndMakeVisible (levelLabel);
 
         addAndMakeVisible (noiseLevelSlider);
+        noiseLevelSlider.setSkewFactorFromMidPoint(0.2);
         addAndMakeVisible (noiseLevelLabel);
 
         addAndMakeVisible (noiseResolutionSlider);
+        noiseResolutionSlider.setSkewFactorFromMidPoint(100.0);
         addAndMakeVisible (noiseResolutionLabel);
 
         addAndMakeVisible(freqLabel);
@@ -80,11 +83,6 @@ public:
 
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
     {
-
-
-
-
-
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
           level += (targetLevel - level)/60;
           noiseLevel += (targetNoiseLevel - noiseLevel)/60;
