@@ -10,49 +10,71 @@ public:
     //==============================================================================
     MainContentComponent()
     {
-        levelSlider.setRange (0.0, 0.75);
-        levelSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
-        levelSlider.addListener(this);
-        levelLabel.setText ("Level", dontSendNotification);
+        // Setting ranges
+        levelSlider.setRange(-100.0, -15.0);
+        freqSlider.setRange(1.0, 2000.0);
+        freqSlider2.setRange(1.0, 2000.0);
+        noiseLevelSlider.setRange(-100.0, 0.0);
+        noiseResolutionSlider.setRange(1, 10000);
+        noiseSmoothingSlider.setRange(1, 20000);
 
-        noiseLevelSlider.setRange (0.0, 10.0);
-        noiseLevelSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
-        noiseLevelSlider.addListener(this);
-        noiseLevelLabel.setText ("Noise Level", dontSendNotification);
-
-        noiseResolutionSlider.setRange (0, 10000);
-        noiseResolutionSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
-        noiseResolutionSlider.addListener(this);
-        noiseResolutionLabel.setText ("Noise Resolution", dontSendNotification);
-
-        addAndMakeVisible(freqSlider);
-        freqSlider.setRange (1.0, 2000.0);
-        freqSlider.setSkewFactorFromMidPoint (500.0); // [4]
-        freqSlider.addListener(this);
+        // Enabling slider value text boxes
+        levelSlider.setTextBoxStyle(Slider::TextBoxRight, false, 100, 20);
         freqSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
-        freqLabel.setText ("Freq 1", dontSendNotification);
-
-        addAndMakeVisible(freqSlider2);
-        freqSlider2.setRange (1.0, 2000.0);
-        freqSlider2.setSkewFactorFromMidPoint (500.0); // [4]
-        freqSlider2.addListener(this);
         freqSlider2.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
-        freqLabel2.setText ("Freq 2", dontSendNotification);
+        noiseLevelSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
+        noiseResolutionSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
+        noiseSmoothingSlider.setTextBoxStyle (Slider::TextBoxRight, false, 100, 20);
 
-        addAndMakeVisible (levelSlider);
-        levelSlider.setSkewFactorFromMidPoint(0.2);
-        addAndMakeVisible (levelLabel);
+        // Labels
+        levelLabel.setText("Level", dontSendNotification);
+        freqLabel.setText("Freq 1", dontSendNotification);
+        freqLabel2.setText("Freq 2", dontSendNotification);
+        noiseLevelLabel.setText("Noise Level", dontSendNotification);
+        noiseResolutionLabel.setText("Noise Resolution", dontSendNotification);
+        noiseSmoothingLabel.setText("Noise Smoothing", dontSendNotification);
 
-        addAndMakeVisible (noiseLevelSlider);
-        noiseLevelSlider.setSkewFactorFromMidPoint(0.2);
-        addAndMakeVisible (noiseLevelLabel);
+        // Initializing slider values
+        levelSlider.setValue(-100.0);
+        freqSlider.setValue(168.0);
+        freqSlider2.setValue(81.0);
+        noiseLevelSlider.setValue(-8.0);
+        noiseResolutionSlider.setValue(11);
+        noiseSmoothingSlider.setValue(4157);
 
-        addAndMakeVisible (noiseResolutionSlider);
+        levelSlider.setTextValueSuffix("dB");
+        noiseLevelSlider.setTextValueSuffix("dB");
+
+        // Making the value scaling a bit more practical
+        freqSlider.setSkewFactorFromMidPoint (500.0); // [4]
+        freqSlider2.setSkewFactorFromMidPoint(500.0); // [4]
+        noiseLevelSlider.setSkewFactorFromMidPoint(-15.0);
         noiseResolutionSlider.setSkewFactorFromMidPoint(100.0);
-        addAndMakeVisible (noiseResolutionLabel);
+        noiseSmoothingSlider.setSkewFactorFromMidPoint(1500.0);
 
+        // Listeners to ensure they they update in real-time
+        levelSlider.addListener(this);
+        noiseLevelSlider.addListener(this);
+        noiseResolutionSlider.addListener(this);
+        noiseSmoothingSlider.addListener(this);
+        freqSlider.addListener(this);
+        freqSlider2.addListener(this);
+
+        // Display sliders
+        addAndMakeVisible(levelSlider);
+        addAndMakeVisible(freqSlider);
+        addAndMakeVisible(freqSlider2);
+        addAndMakeVisible(noiseLevelSlider);
+        addAndMakeVisible(noiseResolutionSlider);
+        addAndMakeVisible(noiseSmoothingSlider);
+
+        // Display labels
+        addAndMakeVisible(levelLabel);
         addAndMakeVisible(freqLabel);
         addAndMakeVisible(freqLabel2);
+        addAndMakeVisible(noiseLevelLabel);
+        addAndMakeVisible(noiseResolutionLabel);
+        addAndMakeVisible(noiseSmoothingLabel);
 
         setSize (600, 200);
         setAudioChannels (0, 2);
@@ -76,9 +98,10 @@ public:
                 updateAngleDelta();
             }
         }
-        targetLevel = levelSlider.getValue();
-        targetNoiseLevel = noiseLevelSlider.getValue();
+        targetLevel = Decibels::decibelsToGain(levelSlider.getValue());
+        targetNoiseLevel = Decibels::decibelsToGain(noiseLevelSlider.getValue());
         downsampleFactor = noiseResolutionSlider.getValue();
+        noiseSmoothing = noiseSmoothingSlider.getValue();
     }
 
     void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
@@ -101,9 +124,12 @@ public:
                   downsampleCounter = 0;
                 }
 
+                smoothedNoise += (noise - smoothedNoise)/noiseSmoothing;
+                smoothedNoise2 += (noise2 - smoothedNoise2)/noiseSmoothing;
+
                 currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
-                currentAngle += angleDelta*(noise+1.0f);;
-                currentAngle2 += angleDelta2*(noise2+1.0f);
+                currentAngle += angleDelta*(smoothedNoise+1.0f);;
+                currentAngle2 += angleDelta2*(smoothedNoise2+1.0f);
 
                 buffer[sample] = (currentSample * levelScale - level);
             }
@@ -116,14 +142,6 @@ public:
         angleDelta = cyclesPerSample * 2.0 * double_Pi;
         angleDelta2 = cyclesPerSample2 * 2.0 * double_Pi;
     }
-
-    // float dBToVolume(float dB) {
-    //   return powf(10.0f, 0.05f, dB);
-    // }
-    //
-    // float volumeTodB(float volume) {
-    //   return 20.0f * log10f(volume);
-    // }
 
     void releaseResources() override
     {
@@ -150,6 +168,9 @@ public:
 
         noiseResolutionLabel.setBounds (10, 130, 90, 20);
         noiseResolutionSlider.setBounds (100, 130, getWidth() - 110, 20);
+
+        noiseSmoothingLabel.setBounds (10, 160, 90, 20);
+        noiseSmoothingSlider.setBounds (100, 160, getWidth() - 110, 20);
     }
 
 
@@ -170,14 +191,18 @@ private:
     Slider noiseResolutionSlider;
     Label noiseResolutionLabel;
 
+    Slider noiseSmoothingSlider;
+    Label noiseSmoothingLabel;
+
     double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2;
 
     volatile double cyclesPerSample;
     volatile double cyclesPerSample2;
+    volatile float noiseSmoothing = 1;
 
     volatile float* buffer;
 
-    volatile float level;
+    volatile float level = 0.0f;
     volatile float targetLevel;
     volatile float levelScale;
 
@@ -192,6 +217,7 @@ private:
     bool updateNoise = false;
 
     float noise, noise2;
+    float smoothedNoise, smoothedNoise2;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
 };
