@@ -3,13 +3,17 @@
 
 #include "../JuceLibraryCode/JuceHeader.h"
 
-class MainContentComponent   : public AudioAppComponent,
-                               public Slider::Listener
+class MainContentComponent : public AudioAppComponent,
+        public Slider::Listener
 {
 public:
-    //==============================================================================
-    MainContentComponent()
-    {
+//==============================================================================
+float dBtoGain (float decibels) {
+        return std::pow (10.0, decibels * 0.05);
+}
+
+MainContentComponent()
+{
         // Setting ranges
         levelSlider.setRange(-100.0, -15.0);
         freqSlider.setRange(1.0, 2000.0);
@@ -78,90 +82,104 @@ public:
 
         setSize (600, 200);
         setAudioChannels (0, 2);
-    }
+}
 
-    ~MainContentComponent()
-    {
+~MainContentComponent()
+{
         shutdownAudio();
-    }
+}
 
-    //==============================================================================
-    void prepareToPlay (int samplesPerBlockExpected, double sampleRate) override
-    {
+//==============================================================================
+void prepareToPlay (int samplesPerBlockExpected, double sampleRate) override
+{
         currentSampleRate = sampleRate;
+
+        // Initializing atomic parameters
+        noiseSmoothing = 1.0f;
+        targetLevel = 0.0f;
+        targetNoiseLevel = 0.0f;
+        downsampleFactor = 1.0f;
+
+        // Initializing non-atomic parameters
+        level = 0.0f;
+        noiseLevel = 0.0f;
+
         updateAngleDelta();
-    }
+}
 
-    void sliderValueChanged (Slider* slider) override {
+void sliderValueChanged (Slider* slider) override {
         if (slider == &freqSlider || slider == &freqSlider2) {
-            if (currentSampleRate > 0.0) {
-                updateAngleDelta();
-            }
+                if (currentSampleRate > 0.0) {
+                        updateAngleDelta();
+                }
         }
-        // Not sure if this is entirely thread-safe. I haven't observed any data-races yet... Need to look at the assembly...
-        targetLevel = Decibels::decibelsToGain(levelSlider.getValue());
-        targetNoiseLevel = Decibels::decibelsToGain(noiseLevelSlider.getValue());
-        downsampleFactor = noiseResolutionSlider.getValue();
-        noiseSmoothing = noiseSmoothingSlider.getValue();
-    }
 
-    // The audio callback: where all your wildest dreams come true.
-    void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
-    {
+        targetLevel.store(dBtoGain(levelSlider.getValue()));
+        targetNoiseLevel.store(dBtoGain(noiseLevelSlider.getValue()));
+        downsampleFactor.store(noiseResolutionSlider.getValue());
+        noiseSmoothing.store(noiseSmoothingSlider.getValue());
+}
+
+// The audio callback: where all your wildest dreams come true.
+void getNextAudioBlock (const AudioSourceChannelInfo& bufferToFill) override
+{
         for (int sample = 0; sample < bufferToFill.numSamples; ++sample) {
-          level += (targetLevel - level)/60;
-          noiseLevel += (targetNoiseLevel - noiseLevel)/60;
-          levelScale = level * 2.0f;
-          noiseLevelScale = noiseLevel * 2.0f;
+                // Adding ballistic response to parameter change to prevent zipper noise
+                level = (targetLevel.load() - level)/60 + level;
+                noiseLevel = (targetNoiseLevel.load() - noiseLevel)/60 + noiseLevel;
 
-          updateNoise = downsampleCounter >= downsampleFactor;
-          downsampleCounter++;
-          // Lower temperal resolution of the noise by changing value every n samples
-          if (updateNoise) {
-            noise = random.nextFloat() * noiseLevelScale - noiseLevel;
-            noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
-            downsampleCounter = 0;
-          }
+                // Applying DC offset for easier math.
+                levelScale = level * 2.0f;
+                noiseLevelScale = noiseLevel * 2.0f;
 
-          smoothedNoise += (noise - smoothedNoise)/noiseSmoothing;
-          smoothedNoise2 += (noise2 - smoothedNoise2)/noiseSmoothing;
-            for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
+                updateNoise = downsampleCounter >= downsampleFactor;
+                downsampleCounter++;
+                // Lower temperal resolution of the noise by changing value every n samples
+                if (updateNoise) {
+                        noise = random.nextFloat() * noiseLevelScale - noiseLevel;
+                        noise2 = random.nextFloat() * noiseLevelScale - noiseLevel;
+                        downsampleCounter = 0;
+                }
 
-                buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
+                smoothedNoise += (noise - smoothedNoise)/noiseSmoothing;
+                smoothedNoise2 += (noise2 - smoothedNoise2)/noiseSmoothing;
+                for (int channel = 0; channel < bufferToFill.buffer->getNumChannels(); ++channel) {
+
+                        buffer = bufferToFill.buffer->getWritePointer (channel, bufferToFill.startSample);
 
 
-                // A basic FM synthesis operator
-                currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
+                        // A basic FM synthesis operator
+                        currentSample = (float) std::sin (currentAngle+std::sin (currentAngle2));
 
-                currentAngle += angleDelta*(smoothedNoise+1.0f);;
-                currentAngle2 += angleDelta2*(smoothedNoise2+1.0f);
+                        currentAngle += angleDelta*(smoothedNoise+1.0f);;
+                        currentAngle2 += angleDelta2*(smoothedNoise2+1.0f);
 
-                // Hot diggity damn! We have samples to put in the buffer!
-                buffer[sample] = (currentSample * levelScale - level);
-            }
+                        // Hot diggity damn! We have samples to put in the buffer!
+                        buffer[sample] = (currentSample * levelScale - level);
+                }
         }
-    }
+}
 
-    void updateAngleDelta() {
+void updateAngleDelta() {
         cyclesPerSample = freqSlider.getValue() / currentSampleRate;
         cyclesPerSample2 = freqSlider2.getValue() / currentSampleRate;
         angleDelta = cyclesPerSample * 2.0 * double_Pi;
         angleDelta2 = cyclesPerSample2 * 2.0 * double_Pi;
-    }
+}
 
-    void releaseResources() override
-    {
+void releaseResources() override
+{
         Logger::getCurrentLogger()->writeToLog ("Releasing audio resources");
-    }
+}
 
-    //==============================================================================
-    void paint (Graphics& g) override
-    {
+//==============================================================================
+void paint (Graphics& g) override
+{
         g.fillAll (Colours::antiquewhite);
-    }
+}
 
-    void resized() override
-    {
+void resized() override
+{
         levelLabel.setBounds (10, 10, 90, 20);
         levelSlider.setBounds (100, 10, getWidth() - 110, 20);
         freqLabel.setBounds (10, 40, 90, 20);
@@ -177,37 +195,39 @@ public:
 
         noiseSmoothingLabel.setBounds (10, 160, 90, 20);
         noiseSmoothingSlider.setBounds (100, 160, getWidth() - 110, 20);
-    }
+}
 
 
 private:
-    //==============================================================================
-    Random random;
+//==============================================================================
 
-    Slider levelSlider, freqSlider, freqSlider2, noiseLevelSlider, noiseResolutionSlider, noiseSmoothingSlider;
+Random random;
 
-    Label levelLabel, freqLabel, freqLabel2, noiseLevelLabel, noiseResolutionLabel, noiseSmoothingLabel;
+Slider levelSlider, freqSlider, freqSlider2, noiseLevelSlider, noiseResolutionSlider, noiseSmoothingSlider;
 
-    double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2, cyclesPerSample, cyclesPerSample2;
-    float smoothedNoise, smoothedNoise2, noise, noise2, targetLevel,
-    levelScale, noiseLevel, targetNoiseLevel, noiseLevelScale, currentSample;
+Label levelLabel, freqLabel, freqLabel2, noiseLevelLabel, noiseResolutionLabel, noiseSmoothingLabel;
 
-    float noiseSmoothing = 1;
-    float level = 0.0f;
-    int downsampleCounter = 0;
-    float downsampleFactor = 0.0;
-    bool updateNoise = false;
+double currentSampleRate, currentAngle, currentAngle2, angleDelta, angleDelta2, cyclesPerSample, cyclesPerSample2;
 
-    // Our dear audio buffer! Oooooooh yeah!
-    float* buffer;
+// These parameters stay in the audio thread.
+float smoothedNoise, smoothedNoise2, noise, noise2, currentSample, levelScale, noiseLevel, noiseLevelScale, level;
 
+// Using atomic to prevent data-races, locks and priority inversion between the audio and GUI thread.
+std::atomic<float> targetLevel, targetNoiseLevel, noiseSmoothing, downsampleFactor;
+
+int downsampleCounter = 0;
+bool updateNoise = false;
 
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
+// Our dear audio buffer! Oooooooh yeah!
+float* buffer;
+
+JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainContentComponent)
 };
 
 
-Component* createMainContentComponent()     { return new MainContentComponent(); }
-
+Component* createMainContentComponent()  {
+        return new MainContentComponent();
+}
 
 #endif  // MAINCOMPONENT_H_INCLUDED
